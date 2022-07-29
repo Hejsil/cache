@@ -1,0 +1,180 @@
+const clap = @import("clap");
+const folders = @import("folders");
+const std = @import("std");
+
+const crypto = std.crypto;
+const fmt = std.fmt;
+const fs = std.fs;
+const heap = std.heap;
+const io = std.io;
+const math = std.math;
+const mem = std.mem;
+const process = std.process;
+
+const params = clap.parseParamsComptime(
+    \\-e, --env <env>...
+    \\    The output of the command depends on this environment variable. If it
+    \\    changes, the cache is invalidated.
+    \\
+    \\-f, --file <file>...
+    \\    The output of the command depends on this file. If it changes, the cache is
+    \\    invalidated.
+    \\
+    \\-s, --string <string>...
+    \\    The output of the command depends on this string. If it changes, the cache
+    \\    is invalidated.
+    \\
+    \\-o, --output <file>...
+    \\    The files that command outputs to.
+    \\
+    \\<command>...
+    \\
+);
+
+const parsers = .{
+    .command = clap.parsers.string,
+    .env = clap.parsers.string,
+    .file = clap.parsers.string,
+    .string = clap.parsers.string,
+};
+
+pub fn main() anyerror!void {
+    var gba_state = heap.GeneralPurposeAllocator(.{}){};
+    const gba = gba_state.allocator();
+    defer _ = gba_state.deinit();
+
+    const global_cache_path = (try folders.getPath(gba, .cache)) orelse
+        return error.MissingGlobalCache;
+    defer gba.free(global_cache_path);
+
+    const cache_path = try fs.path.join(gba, &.{
+        global_cache_path,
+        "cache",
+    });
+    defer gba.free(cache_path);
+
+    var stdout_buffered = io.bufferedWriter(io.getStdErr().writer());
+    const stdout = stdout_buffered.writer();
+    var stderr_buffered = io.bufferedWriter(io.getStdErr().writer());
+    const stderr = stderr_buffered.writer();
+
+    var diag = clap.Diagnostic{};
+    const args = clap.parse(clap.Help, &params, parsers, .{
+        .diagnostic = &diag,
+    }) catch |err| {
+        diag.report(stderr, err) catch {};
+        stderr_buffered.flush() catch {};
+        return err;
+    };
+
+    const digest = try digestFromArgs(gba, args);
+
+    const cache_miss = if (updateCache(
+        gba,
+        stdout,
+        stderr,
+        cache_path,
+        &digest,
+        args.args.output,
+    )) |_| false else |err| switch (err) {
+        error.FileNotFound => true,
+        else => |err2| return err2,
+    };
+
+    if (cache_miss) {
+        const output = try std.ChildProcess.exec(.{
+            .allocator = gba,
+            .argv = args.positionals,
+            .max_output_bytes = math.maxInt(usize),
+        });
+        _ = output;
+
+        try updateCache(
+            gba,
+            stdout,
+            stderr,
+            cache_path,
+            &digest,
+            args.args.output,
+        );
+    }
+
+    try stdout_buffered.flush();
+    try stderr_buffered.flush();
+}
+
+const BinDigest = [bin_digest_len]u8;
+const bin_digest_len = 16;
+const Hasher = crypto.auth.siphash.SipHash128(1, 3);
+const hex_digest_len = bin_digest_len * 2;
+
+fn digestFromArgs(allocator: mem.Allocator, args: anytype) ![hex_digest_len]u8 {
+    const cwd = fs.cwd();
+    var hasher = Hasher.init(&[_]u8{0} ** Hasher.key_length);
+
+    for (args.positionals) |command_arg|
+        hasher.update(command_arg);
+    for (args.args.string) |string|
+        hasher.update(string);
+    for (args.args.env) |env| {
+        const content = process.getEnvVarOwned(allocator, env) catch "";
+        defer allocator.free(content);
+        hasher.update(env);
+        hasher.update(content);
+    }
+    for (args.args.file) |file| {
+        const content = try cwd.readFileAlloc(allocator, file, math.maxInt(usize));
+        defer allocator.free(content);
+        hasher.update(file);
+        hasher.update(content);
+    }
+
+    var bin_digest: BinDigest = undefined;
+    hasher.final(&bin_digest);
+
+    var res: [hex_digest_len]u8 = undefined;
+    _ = std.fmt.bufPrint(
+        &res,
+        "{s}",
+        .{std.fmt.fmtSliceHexLower(&bin_digest)},
+    ) catch unreachable;
+    return res;
+}
+
+fn updateCache(
+    allocator: mem.Allocator,
+    stdout: anytype,
+    stderr: anytype,
+    cache_path: []const u8,
+    digest: []const u8,
+    outputs: []const []const u8,
+) !void {
+    var buf: [1024]u8 = undefined;
+    const cwd = fs.cwd();
+    const stdout_path = try fs.path.join(allocator, &.{
+        cache_path,
+        fmt.bufPrint(&buf, "{s}-stdout", .{digest}) catch unreachable,
+    });
+    defer allocator.free(stdout_path);
+    const stderr_path = try fs.path.join(allocator, &.{
+        cache_path,
+        fmt.bufPrint(&buf, "{s}-stderr", .{digest}) catch unreachable,
+    });
+    defer allocator.free(stderr_path);
+
+    const stdout_file = try cwd.openFile(stdout_path, .{});
+    const stderr_file = try cwd.openFile(stderr_path, .{});
+
+    for (outputs) |output, i| {
+        const path = try fs.path.join(allocator, &.{
+            cache_path,
+            fmt.bufPrint(&buf, "{s}-{}", .{ digest, i }) catch unreachable,
+        });
+        defer allocator.free(path);
+        try cwd.symLink(output, path, .{});
+    }
+
+    var fifo = std.fifo.LinearFifo(u8, .{ .Static = mem.page_size }).init();
+    try fifo.pump(stdout_file.reader(), stdout);
+    try fifo.pump(stderr_file.reader(), stderr);
+}
