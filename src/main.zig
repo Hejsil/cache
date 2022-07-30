@@ -12,17 +12,19 @@ const mem = std.mem;
 const process = std.process;
 
 const params = clap.parseParamsComptime(
+    \\    --stdin
+    \\    The output of the command depends on stdin. If it changes, the cache is invalidated.
+    \\
     \\-e, --env <env>...
-    \\    The output of the command depends on this environment variable. If it
-    \\    changes, the cache is invalidated.
+    \\    The output of the command depends on this environment variable. If it changes, the cache
+    \\    is invalidated.
     \\
     \\-f, --file <file>...
-    \\    The output of the command depends on this file. If it changes, the cache is
-    \\    invalidated.
+    \\    The output of the command depends on this file. If it changes, the cache is invalidated.
     \\
     \\-s, --string <string>...
-    \\    The output of the command depends on this string. If it changes, the cache
-    \\    is invalidated.
+    \\    The output of the command depends on this string. If it changes, the cache is
+    \\    invalidated.
     \\
     \\-o, --output <file>...
     \\    The files that command outputs to.
@@ -52,6 +54,7 @@ pub fn main() anyerror!void {
         "cache",
     });
     defer gba.free(cache_path);
+    try fs.cwd().makePath(cache_path);
 
     const stdin = io.getStdIn();
     const stdout = io.getStdErr().writer();
@@ -65,7 +68,7 @@ pub fn main() anyerror!void {
         return err;
     };
 
-    const stdin_content = if (!stdin.isTty())
+    const stdin_content = if (args.args.stdin)
         try stdin.readToEndAlloc(gba, math.maxInt(usize))
     else
         "";
@@ -212,6 +215,9 @@ fn updateCache(
     const cache_dir = try cwd.openDir(cache_path, .{});
     for (outputs) |output, i| {
         const cache_name = fmt.bufPrint(&buf, "{s}-{}", .{ digest, i }) catch unreachable;
-        try fs.rename(cwd, output, cache_dir, cache_name);
+        fs.rename(cwd, output, cache_dir, cache_name) catch |err| switch (err) {
+            error.RenameAcrossMountPoints => try cwd.copyFile(output, cache_dir, cache_name, .{}),
+            else => |e| return e,
+        };
     }
 }
