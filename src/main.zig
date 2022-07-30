@@ -12,6 +12,9 @@ const mem = std.mem;
 const process = std.process;
 
 const params = clap.parseParamsComptime(
+    \\-h, --help
+    \\    Output this help message and exit.
+    \\
     \\    --stdin
     \\    The output of the command depends on stdin. If it changes, the cache is invalidated.
     \\
@@ -64,9 +67,23 @@ pub fn main() anyerror!void {
     const args = clap.parse(clap.Help, &params, parsers, .{
         .diagnostic = &diag,
     }) catch |err| {
-        diag.report(stderr, err) catch {};
+        var stderr_buf = io.bufferedWriter(stderr);
+        diag.report(stderr_buf.writer(), err) catch {};
+        stderr_buf.flush() catch {};
         return err;
     };
+
+    if (args.args.help) {
+        var buffered = io.bufferedWriter(stdout);
+        const writer = buffered.writer();
+
+        try writer.writeAll("Usage: cache ");
+        try clap.usage(writer, clap.Help, &params);
+        try writer.writeAll("\n\nOptions:\n");
+        try clap.help(writer, clap.Help, &params, .{});
+
+        return buffered.flush();
+    }
 
     const stdin_content = if (args.args.stdin)
         try stdin.readToEndAlloc(gba, math.maxInt(usize))
