@@ -22,4 +22,8 @@ $ cache -s "$(date +%Y-%m-%d)" -- curl -s 'https://wttr.in/'
 
 $ # You can mark a command to depend on different things like environment variables
 $ # (-e), files (-f) or even stdin (--stdin).
+
+$ # cache can also handle if a command outputs to one or more files. You need to
+$ # manually list the files the command will output
+$ cache -o test -- gcc -o test test.c
 ```
