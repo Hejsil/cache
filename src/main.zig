@@ -60,29 +60,28 @@ pub fn main() anyerror!void {
     try fs.cwd().makePath(cache_path);
 
     const stdin = io.getStdIn();
-    const stdout = io.getStdErr().writer();
-    const stderr = io.getStdErr().writer();
+    const stdout_unbuf = io.getStdOut().writer();
+    const stderr_unbuf = io.getStdErr().writer();
+    var stdout_buf = io.bufferedWriter(stdout_unbuf);
+    var stderr_buf = io.bufferedWriter(stderr_unbuf);
+    const stdout = stdout_buf.writer();
+    const stderr = stderr_buf.writer();
 
     var diag = clap.Diagnostic{};
     const args = clap.parse(clap.Help, &params, parsers, .{
         .diagnostic = &diag,
     }) catch |err| {
-        var stderr_buf = io.bufferedWriter(stderr);
-        diag.report(stderr_buf.writer(), err) catch {};
+        diag.report(stderr, err) catch {};
         stderr_buf.flush() catch {};
         return err;
     };
 
     if (args.args.help) {
-        var buffered = io.bufferedWriter(stdout);
-        const writer = buffered.writer();
-
-        try writer.writeAll("Usage: cache ");
-        try clap.usage(writer, clap.Help, &params);
-        try writer.writeAll("\n\nOptions:\n");
-        try clap.help(writer, clap.Help, &params, .{});
-
-        return buffered.flush();
+        try stdout.writeAll("Usage: cache ");
+        try clap.usage(stdout, clap.Help, &params);
+        try stdout.writeAll("\n\nOptions:\n");
+        try clap.help(stdout, clap.Help, &params, .{});
+        return stdout_buf.flush();
     }
 
     const stdin_content = if (args.args.stdin)
@@ -94,6 +93,8 @@ pub fn main() anyerror!void {
     const digest = try digestFromArgs(gba, stdin_content, args);
     if (updateOutput(gba, stdout, stderr, cache_path, &digest, args.args.output)) |_| {
         // Cache hit, just return
+        try stdout_buf.flush();
+        try stderr_buf.flush();
         return;
     } else |err| switch (err) {
         error.FileNotFound => {
@@ -112,6 +113,8 @@ pub fn main() anyerror!void {
 
     try updateCache(gba, output.stdout, output.stderr, cache_path, &digest, args.args.output);
     try updateOutput(gba, stdout, stderr, cache_path, &digest, args.args.output);
+    try stdout_buf.flush();
+    try stderr_buf.flush();
 }
 
 const BinDigest = [bin_digest_len]u8;
