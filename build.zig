@@ -1,7 +1,6 @@
 const std = @import("std");
 
 pub fn build(b: *std.build.Builder) void {
-    b.setPreferredReleaseMode(.ReleaseFast);
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
 
