@@ -189,7 +189,7 @@ fn updateOutput(
     const stdout_file = try cwd.openFile(stdout_path, .{});
     const stderr_file = try cwd.openFile(stderr_path, .{});
 
-    for (outputs) |output, i| {
+    for (outputs, 0..) |output, i| {
         const path = try fs.path.join(allocator, &.{
             cache_path,
             fmt.bufPrint(&buf, "{s}-{}", .{ digest, i }) catch unreachable,
@@ -233,7 +233,7 @@ fn updateCache(
     try cwd.writeFile(stderr_path, stderr);
 
     const cache_dir = try cwd.openDir(cache_path, .{});
-    for (outputs) |output, i| {
+    for (outputs, 0..) |output, i| {
         const cache_name = fmt.bufPrint(&buf, "{s}-{}", .{ digest, i }) catch unreachable;
         fs.rename(cwd, output, cache_dir, cache_name) catch |err| switch (err) {
             error.RenameAcrossMountPoints => try cwd.copyFile(output, cache_dir, cache_name, .{}),
