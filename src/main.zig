@@ -76,7 +76,7 @@ pub fn main() anyerror!void {
         return err;
     };
 
-    if (args.args.help) {
+    if (args.args.help != 0) {
         try stdout.writeAll("Usage: cache ");
         try clap.usage(stdout, clap.Help, &params);
         try stdout.writeAll("\n\nOptions:\n");
@@ -84,7 +84,7 @@ pub fn main() anyerror!void {
         return stdout_buf.flush();
     }
 
-    const stdin_content = if (args.args.stdin)
+    const stdin_content = if (args.args.stdin != 0)
         try stdin.readToEndAlloc(gba, math.maxInt(usize))
     else
         "";
