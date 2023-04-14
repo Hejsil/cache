@@ -16,5 +16,6 @@ pub fn build(b: *std.build.Builder) void {
     exe.addAnonymousModule("folders", .{
         .source_file = .{ .path = "lib/known-folders/known-folders.zig" },
     });
-    exe.install();
+
+    b.installArtifact(exe);
 }
