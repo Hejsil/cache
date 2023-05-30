@@ -25,5 +25,5 @@ $ # (-e), files (-f) or even stdin (--stdin).
 
 $ # cache can also handle if a command outputs to one or more files. You need to
 $ # manually list the files the command will output
-$ cache -o test -- gcc -o test test.c
+$ cache -o test -f test.c -- gcc -o test test.c
 ```
