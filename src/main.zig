@@ -103,7 +103,7 @@ pub fn main() anyerror!void {
         else => |err2| return err2,
     }
 
-    const output = try std.ChildProcess.exec(.{
+    const output = try std.ChildProcess.run(.{
         .allocator = gba,
         .argv = args.positionals,
         .max_output_bytes = math.maxInt(usize),
