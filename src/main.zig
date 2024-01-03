@@ -44,19 +44,19 @@ const parsers = .{
 };
 
 pub fn main() anyerror!void {
-    var gba_state = heap.GeneralPurposeAllocator(.{}){};
-    const gba = gba_state.allocator();
-    defer _ = gba_state.deinit();
+    var gpa_state = heap.GeneralPurposeAllocator(.{}){};
+    const gpa = gpa_state.allocator();
+    defer _ = gpa_state.deinit();
 
-    const global_cache_path = (try folders.getPath(gba, .cache)) orelse
+    const global_cache_path = (try folders.getPath(gpa, .cache)) orelse
         return error.MissingGlobalCache;
-    defer gba.free(global_cache_path);
+    defer gpa.free(global_cache_path);
 
-    const cache_path = try fs.path.join(gba, &.{
+    const cache_path = try fs.path.join(gpa, &.{
         global_cache_path,
         "cache",
     });
-    defer gba.free(cache_path);
+    defer gpa.free(cache_path);
     try fs.cwd().makePath(cache_path);
 
     const stdin = io.getStdIn();
@@ -69,6 +69,7 @@ pub fn main() anyerror!void {
 
     var diag = clap.Diagnostic{};
     const args = clap.parse(clap.Help, &params, parsers, .{
+        .allocator = gpa,
         .diagnostic = &diag,
     }) catch |err| {
         diag.report(stderr, err) catch {};
@@ -85,13 +86,13 @@ pub fn main() anyerror!void {
     }
 
     const stdin_content = if (args.args.stdin != 0)
-        try stdin.readToEndAlloc(gba, math.maxInt(usize))
+        try stdin.readToEndAlloc(gpa, math.maxInt(usize))
     else
         "";
-    defer gba.free(stdin_content);
+    defer gpa.free(stdin_content);
 
-    const digest = try digestFromArgs(gba, stdin_content, args);
-    if (updateOutput(gba, stdout, stderr, cache_path, &digest, args.args.output)) |_| {
+    const digest = try digestFromArgs(gpa, stdin_content, args);
+    if (updateOutput(gpa, stdout, stderr, cache_path, &digest, args.args.output)) |_| {
         // Cache hit, just return
         try stdout_buf.flush();
         try stderr_buf.flush();
@@ -104,15 +105,15 @@ pub fn main() anyerror!void {
     }
 
     const output = try std.ChildProcess.run(.{
-        .allocator = gba,
+        .allocator = gpa,
         .argv = args.positionals,
         .max_output_bytes = math.maxInt(usize),
     });
-    defer gba.free(output.stdout);
-    defer gba.free(output.stderr);
+    defer gpa.free(output.stdout);
+    defer gpa.free(output.stderr);
 
-    try updateCache(gba, output.stdout, output.stderr, cache_path, &digest, args.args.output);
-    try updateOutput(gba, stdout, stderr, cache_path, &digest, args.args.output);
+    try updateCache(gpa, output.stdout, output.stderr, cache_path, &digest, args.args.output);
+    try updateOutput(gpa, stdout, stderr, cache_path, &digest, args.args.output);
     try stdout_buf.flush();
     try stderr_buf.flush();
 }
