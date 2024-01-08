@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
@@ -10,11 +10,11 @@ pub fn build(b: *std.build.Builder) void {
         .target = target,
         .optimize = optimize,
     });
-    exe.addAnonymousModule("clap", .{
-        .source_file = .{ .path = "lib/zig-clap/clap.zig" },
+    exe.root_module.addAnonymousImport("clap", .{
+        .root_source_file = .{ .path = "lib/zig-clap/clap.zig" },
     });
-    exe.addAnonymousModule("folders", .{
-        .source_file = .{ .path = "lib/known-folders/known-folders.zig" },
+    exe.root_module.addAnonymousImport("folders", .{
+        .root_source_file = .{ .path = "lib/known-folders/known-folders.zig" },
     });
 
     b.installArtifact(exe);
