@@ -76,6 +76,7 @@ pub fn main() anyerror!void {
         stderr_buf.flush() catch {};
         return err;
     };
+    defer args.deinit();
 
     if (args.args.help != 0) {
         try stdout.writeAll("Usage: cache ");
