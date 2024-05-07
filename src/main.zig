@@ -231,8 +231,8 @@ fn updateCache(
     });
     defer allocator.free(stderr_path);
 
-    try cwd.writeFile(stdout_path, stdout);
-    try cwd.writeFile(stderr_path, stderr);
+    try cwd.writeFile(.{ .sub_path = stdout_path, .data = stdout });
+    try cwd.writeFile(.{ .sub_path = stderr_path, .data = stderr });
 
     const cache_dir = try cwd.openDir(cache_path, .{});
     for (outputs, 0..) |output, i| {
