@@ -105,7 +105,7 @@ pub fn main() anyerror!void {
         else => |err2| return err2,
     }
 
-    const output = try std.ChildProcess.run(.{
+    const output = try std.process.Child.run(.{
         .allocator = gpa,
         .argv = args.positionals,
         .max_output_bytes = math.maxInt(usize),
