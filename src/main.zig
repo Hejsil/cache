@@ -18,6 +18,12 @@ const params = clap.parseParamsComptime(
     \\    --stdin
     \\    The output of the command depends on stdin. If it changes, the cache is invalidated.
     \\
+    \\    --ignore-stdout
+    \\    The output from stdout will not be cached.
+    \\
+    \\    --ignore-stderr
+    \\    The output from stderr will not be cached.
+    \\
     \\-e, --env <env>...
     \\    The output of the command depends on this environment variable. If it changes, the cache
     \\    is invalidated.
@@ -113,7 +119,10 @@ pub fn main() anyerror!void {
     defer gpa.free(output.stdout);
     defer gpa.free(output.stderr);
 
-    try updateCache(gpa, output.stdout, output.stderr, cache_path, &digest, args.args.output);
+    const output_stdout = if (args.args.@"ignore-stdout" == 0) output.stdout else "";
+    const output_stderr = if (args.args.@"ignore-stderr" == 0) output.stderr else "";
+
+    try updateCache(gpa, output_stdout, output_stderr, cache_path, &digest, args.args.output);
     try updateOutput(gpa, stdout, stderr, cache_path, &digest, args.args.output);
     try stdout_buf.flush();
     try stderr_buf.flush();
@@ -154,6 +163,11 @@ fn digestFromArgs(
         hasher.update(&mem.toBytes(metadata.size()));
         hasher.update(&mem.toBytes(metadata.modified()));
     }
+
+    if (args.args.@"ignore-stdout" != 0)
+        hasher.update("ignore-stdout");
+    if (args.args.@"ignore-stderr" != 0)
+        hasher.update("ignore-stderr");
 
     var bin_digest: BinDigest = undefined;
     hasher.final(&bin_digest);
