@@ -124,6 +124,14 @@ pub fn main() anyerror!void {
 
     try updateCache(gpa, output_stdout, output_stderr, cache_path, &digest, args.args.output);
     try updateOutput(gpa, stdout, stderr, cache_path, &digest, args.args.output);
+
+    // Print out stdout and stderr when ignore but didn't have a cache hit. This allows for better
+    // debugging if the command fails.
+    if (args.args.@"ignore-stdout" != 0)
+        try stdout.writeAll(output.stdout);
+    if (args.args.@"ignore-stderr" != 0)
+        try stderr.writeAll(output.stderr);
+
     try stdout_buf.flush();
     try stderr_buf.flush();
 }
