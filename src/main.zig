@@ -171,13 +171,7 @@ fn digestFromArgs(
     var bin_digest: BinDigest = undefined;
     hasher.final(&bin_digest);
 
-    var res: [hex_digest_len]u8 = undefined;
-    _ = std.fmt.bufPrint(
-        &res,
-        "{s}",
-        .{std.fmt.fmtSliceHexLower(&bin_digest)},
-    ) catch unreachable;
-    return res;
+    return std.fmt.bytesToHex(bin_digest, .lower);
 }
 
 fn updateOutput(
