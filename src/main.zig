@@ -49,7 +49,7 @@ const parsers = .{
     .string = clap.parsers.string,
 };
 
-pub fn main() anyerror!void {
+pub fn main() !void {
     var gpa_state = heap.GeneralPurposeAllocator(.{}){};
     const gpa = gpa_state.allocator();
     defer _ = gpa_state.deinit();
@@ -66,30 +66,24 @@ pub fn main() anyerror!void {
     try fs.cwd().makePath(cache_path);
 
     const stdin = io.getStdIn();
-    const stdout_unbuf = io.getStdOut().writer();
-    const stderr_unbuf = io.getStdErr().writer();
-    var stdout_buf = io.bufferedWriter(stdout_unbuf);
-    var stderr_buf = io.bufferedWriter(stderr_unbuf);
-    const stdout = stdout_buf.writer();
-    const stderr = stderr_buf.writer();
+    const stdout = io.getStdOut();
+    const stderr = io.getStdErr();
 
     var diag = clap.Diagnostic{};
     const args = clap.parse(clap.Help, &params, parsers, .{
         .allocator = gpa,
         .diagnostic = &diag,
     }) catch |err| {
-        diag.report(stderr, err) catch {};
-        stderr_buf.flush() catch {};
+        diag.report(stderr.writer(), err) catch {};
         return err;
     };
     defer args.deinit();
 
     if (args.args.help != 0) {
         try stdout.writeAll("Usage: cache ");
-        try clap.usage(stdout, clap.Help, &params);
+        try clap.usage(stdout.writer(), clap.Help, &params);
         try stdout.writeAll("\n\nOptions:\n");
-        try clap.help(stdout, clap.Help, &params, .{});
-        return stdout_buf.flush();
+        return clap.help(stdout.writer(), clap.Help, &params, .{});
     }
 
     const stdin_content = if (args.args.stdin != 0)
@@ -101,8 +95,6 @@ pub fn main() anyerror!void {
     const digest = try digestFromArgs(gpa, stdin_content, args);
     if (updateOutput(gpa, stdout, stderr, cache_path, &digest, args.args.output)) |_| {
         // Cache hit, just return
-        try stdout_buf.flush();
-        try stderr_buf.flush();
         return;
     } else |err| switch (err) {
         error.FileNotFound => {
@@ -131,9 +123,6 @@ pub fn main() anyerror!void {
         try stdout.writeAll(output.stdout);
     if (args.args.@"ignore-stderr" != 0)
         try stderr.writeAll(output.stderr);
-
-    try stdout_buf.flush();
-    try stderr_buf.flush();
 }
 
 const BinDigest = [bin_digest_len]u8;
@@ -191,32 +180,19 @@ fn digestFromArgs(
 
 fn updateOutput(
     allocator: mem.Allocator,
-    stdout: anytype,
-    stderr: anytype,
+    stdout: std.fs.File,
+    stderr: std.fs.File,
     cache_path: []const u8,
     digest: []const u8,
     outputs: []const []const u8,
 ) !void {
-    var buf: [1024]u8 = undefined;
+    var buf: [std.fs.max_name_bytes]u8 = undefined;
+
     const cwd = fs.cwd();
-    const stdout_path = try fs.path.join(allocator, &.{
-        cache_path,
-        fmt.bufPrint(&buf, "{s}-stdout", .{digest}) catch unreachable,
-    });
-    defer allocator.free(stdout_path);
-    const stderr_path = try fs.path.join(allocator, &.{
-        cache_path,
-        fmt.bufPrint(&buf, "{s}-stderr", .{digest}) catch unreachable,
-    });
-    defer allocator.free(stderr_path);
-
-    const stdout_file = try cwd.openFile(stdout_path, .{});
-    const stderr_file = try cwd.openFile(stderr_path, .{});
-
     for (outputs, 0..) |output, i| {
         const path = try fs.path.join(allocator, &.{
             cache_path,
-            fmt.bufPrint(&buf, "{s}-{}", .{ digest, i }) catch unreachable,
+            try fmt.bufPrint(&buf, "{s}-{}", .{ digest, i }),
         });
         defer allocator.free(path);
 
@@ -227,9 +203,25 @@ fn updateOutput(
         try cwd.symLink(path, output, .{});
     }
 
-    var fifo = std.fifo.LinearFifo(u8, .{ .Static = mem.page_size }).init();
-    try fifo.pump(stdout_file.reader(), stdout);
-    try fifo.pump(stderr_file.reader(), stderr);
+    const stdout_path = try fs.path.join(allocator, &.{
+        cache_path,
+        try fmt.bufPrint(&buf, "{s}-stdout", .{digest}),
+    });
+    defer allocator.free(stdout_path);
+
+    const stdout_file = try cwd.openFile(stdout_path, .{});
+    defer stdout_file.close();
+    try stdout.writeFileAll(stdout_file, .{});
+
+    const stderr_path = try fs.path.join(allocator, &.{
+        cache_path,
+        try fmt.bufPrint(&buf, "{s}-stderr", .{digest}),
+    });
+    defer allocator.free(stderr_path);
+
+    const stderr_file = try cwd.openFile(stderr_path, .{});
+    defer stderr_file.close();
+    try stderr.writeFileAll(stderr_file, .{});
 }
 
 fn updateCache(
