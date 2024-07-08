@@ -146,7 +146,10 @@ fn digestFromArgs(
     for (args.args.string) |string|
         hasher.update(string);
     for (args.args.env) |env| {
-        const content = process.getEnvVarOwned(allocator, env) catch "";
+        const content = process.getEnvVarOwned(allocator, env) catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => "",
+            else => |e| return e,
+        };
         defer allocator.free(content);
         hasher.update(env);
         hasher.update(content);
