@@ -209,9 +209,13 @@ fn updateOutput(
     try stdout.writeFileAll(stdout_file, .{});
 
     const stderr_name = try fmt.bufPrint(&buf, "{s}-stderr", .{digest});
-    const stderr_file = try cache_dir.openFile(stderr_name, .{});
-    defer stderr_file.close();
-    try stderr.writeFileAll(stderr_file, .{});
+    if (cache_dir.openFile(stderr_name, .{})) |stderr_file| {
+        defer stderr_file.close();
+        try stderr.writeFileAll(stderr_file, .{});
+    } else |err| switch (err) {
+        error.FileNotFound => {},
+        else => |e| return e,
+    }
 }
 
 fn updateCache(
@@ -226,8 +230,11 @@ fn updateCache(
 
     const stdout_name = try fmt.bufPrint(&buf, "{s}-stdout", .{digest});
     try cache_dir.writeFile(.{ .sub_path = stdout_name, .data = stdout });
-    const stderr_name = try fmt.bufPrint(&buf, "{s}-stderr", .{digest});
-    try cache_dir.writeFile(.{ .sub_path = stderr_name, .data = stderr });
+
+    if (stderr.len != 0) {
+        const stderr_name = try fmt.bufPrint(&buf, "{s}-stderr", .{digest});
+        try cache_dir.writeFile(.{ .sub_path = stderr_name, .data = stderr });
+    }
 
     for (outputs, 0..) |output, i| {
         const cache_name = fmt.bufPrint(&buf, "{s}-{}", .{ digest, i }) catch unreachable;
