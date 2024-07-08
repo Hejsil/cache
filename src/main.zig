@@ -54,6 +54,10 @@ pub fn main() !void {
     const gpa = gpa_state.allocator();
     defer _ = gpa_state.deinit();
 
+    const stdin = io.getStdIn();
+    const stdout = io.getStdOut();
+    const stderr = io.getStdErr();
+
     const global_cache_path = (try folders.getPath(gpa, .cache)) orelse
         return error.MissingGlobalCache;
     defer gpa.free(global_cache_path);
@@ -63,11 +67,9 @@ pub fn main() !void {
         "cache",
     });
     defer gpa.free(cache_path);
-    try fs.cwd().makePath(cache_path);
 
-    const stdin = io.getStdIn();
-    const stdout = io.getStdOut();
-    const stderr = io.getStdErr();
+    var cache_dir = try std.fs.cwd().makeOpenPath(cache_path, .{});
+    defer cache_dir.close();
 
     var diag = clap.Diagnostic{};
     const args = clap.parse(clap.Help, &params, parsers, .{
@@ -93,7 +95,7 @@ pub fn main() !void {
     defer gpa.free(stdin_content);
 
     const digest = try digestFromArgs(gpa, stdin_content, args);
-    if (updateOutput(gpa, stdout, stderr, cache_path, &digest, args.args.output)) |_| {
+    if (updateOutput(gpa, stdout, stderr, cache_dir, cache_path, &digest, args.args.output)) |_| {
         // Cache hit, just return
         return;
     } else |err| switch (err) {
@@ -114,8 +116,8 @@ pub fn main() !void {
     const output_stdout = if (args.args.@"ignore-stdout" == 0) output.stdout else "";
     const output_stderr = if (args.args.@"ignore-stderr" == 0) output.stderr else "";
 
-    try updateCache(gpa, output_stdout, output_stderr, cache_path, &digest, args.args.output);
-    try updateOutput(gpa, stdout, stderr, cache_path, &digest, args.args.output);
+    try updateCache(output_stdout, output_stderr, cache_dir, &digest, args.args.output);
+    try updateOutput(gpa, stdout, stderr, cache_dir, cache_path, &digest, args.args.output);
 
     // Print out stdout and stderr when ignore but didn't have a cache hit. This allows for better
     // debugging if the command fails.
@@ -182,6 +184,7 @@ fn updateOutput(
     allocator: mem.Allocator,
     stdout: std.fs.File,
     stderr: std.fs.File,
+    cache_dir: std.fs.Dir,
     cache_path: []const u8,
     digest: []const u8,
     outputs: []const []const u8,
@@ -203,52 +206,32 @@ fn updateOutput(
         try cwd.symLink(path, output, .{});
     }
 
-    const stdout_path = try fs.path.join(allocator, &.{
-        cache_path,
-        try fmt.bufPrint(&buf, "{s}-stdout", .{digest}),
-    });
-    defer allocator.free(stdout_path);
-
-    const stdout_file = try cwd.openFile(stdout_path, .{});
+    const stdout_name = try fmt.bufPrint(&buf, "{s}-stdout", .{digest});
+    const stdout_file = try cache_dir.openFile(stdout_name, .{});
     defer stdout_file.close();
     try stdout.writeFileAll(stdout_file, .{});
 
-    const stderr_path = try fs.path.join(allocator, &.{
-        cache_path,
-        try fmt.bufPrint(&buf, "{s}-stderr", .{digest}),
-    });
-    defer allocator.free(stderr_path);
-
-    const stderr_file = try cwd.openFile(stderr_path, .{});
+    const stderr_name = try fmt.bufPrint(&buf, "{s}-stderr", .{digest});
+    const stderr_file = try cache_dir.openFile(stderr_name, .{});
     defer stderr_file.close();
     try stderr.writeFileAll(stderr_file, .{});
 }
 
 fn updateCache(
-    allocator: mem.Allocator,
     stdout: []const u8,
     stderr: []const u8,
-    cache_path: []const u8,
+    cache_dir: std.fs.Dir,
     digest: []const u8,
     outputs: []const []const u8,
 ) !void {
-    var buf: [1024]u8 = undefined;
+    var buf: [std.fs.max_name_bytes]u8 = undefined;
     const cwd = fs.cwd();
-    const stdout_path = try fs.path.join(allocator, &.{
-        cache_path,
-        fmt.bufPrint(&buf, "{s}-stdout", .{digest}) catch unreachable,
-    });
-    defer allocator.free(stdout_path);
-    const stderr_path = try fs.path.join(allocator, &.{
-        cache_path,
-        fmt.bufPrint(&buf, "{s}-stderr", .{digest}) catch unreachable,
-    });
-    defer allocator.free(stderr_path);
 
-    try cwd.writeFile(.{ .sub_path = stdout_path, .data = stdout });
-    try cwd.writeFile(.{ .sub_path = stderr_path, .data = stderr });
+    const stdout_name = try fmt.bufPrint(&buf, "{s}-stdout", .{digest});
+    try cache_dir.writeFile(.{ .sub_path = stdout_name, .data = stdout });
+    const stderr_name = try fmt.bufPrint(&buf, "{s}-stderr", .{digest});
+    try cache_dir.writeFile(.{ .sub_path = stderr_name, .data = stderr });
 
-    const cache_dir = try cwd.openDir(cache_path, .{});
     for (outputs, 0..) |output, i| {
         const cache_name = fmt.bufPrint(&buf, "{s}-{}", .{ digest, i }) catch unreachable;
         fs.rename(cwd, output, cache_dir, cache_name) catch |err| switch (err) {
