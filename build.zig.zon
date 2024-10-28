@@ -1,0 +1,15 @@
+.{
+    .name = "cache",
+    .version = "0.0.0",
+    .dependencies = .{
+        .clap = .{
+            .url = "git+https://github.com/Hejsil/zig-clap#4ec4273a8a3b0ab02f1a7e49e971da8b5a71a034",
+            .hash = "1220f26d3185d87c40258791ff83a2e03b67e7a9a6973f7a790eabdee4f5e643e84b",
+        },
+        .@"known-folders" = .{
+            .url = "git+https://github.com/ziglibs/known-folders.git#1cceeb70e77dec941a4178160ff6c8d05a74de6f",
+            .hash = "12205f5e7505c96573f6fc5144592ec38942fb0a326d692f9cddc0c7dd38f9028f29",
+        },
+    },
+    .paths = .{"."},
+}

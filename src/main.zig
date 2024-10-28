@@ -107,7 +107,7 @@ pub fn main() !void {
 
     const output = try std.process.Child.run(.{
         .allocator = gpa,
-        .argv = args.positionals,
+        .argv = args.positionals[0],
         .max_output_bytes = math.maxInt(usize),
     });
     defer gpa.free(output.stdout);
@@ -141,7 +141,7 @@ fn digestFromArgs(
     var hasher = Hasher.init(&[_]u8{0} ** Hasher.key_length);
     hasher.update(stdin);
 
-    for (args.positionals) |command_arg|
+    for (args.positionals[0]) |command_arg|
         hasher.update(command_arg);
     for (args.args.string) |string|
         hasher.update(string);
