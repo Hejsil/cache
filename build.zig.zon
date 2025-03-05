@@ -1,6 +1,7 @@
 .{
     .name = .cache,
     .version = "0.2.0",
+    .minimum_zig_version = "0.14.0",
     .fingerprint = 0x41476be70173bd63,
     .dependencies = .{
         .clap = .{
