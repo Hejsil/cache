@@ -1,4 +1,4 @@
-const clap = @import("clap");
+const spaghet = @import("spaghet");
 const folders = @import("folders");
 const std = @import("std");
 
@@ -11,42 +11,50 @@ const math = std.math;
 const mem = std.mem;
 const process = std.process;
 
-const params = clap.parseParamsComptime(
+const usage =
+    \\Usage: cache [options]
+    \\
+    \\Options:
     \\-h, --help
-    \\    Output this help message and exit.
+    \\      Output this help message and exit.
     \\
     \\    --stdin
-    \\    The output of the command depends on stdin. If it changes, the cache is invalidated.
+    \\      The output of the command depends on stdin. If it changes, the cache is invalidated.
     \\
     \\    --ignore-stdout
-    \\    The output from stdout will not be cached.
+    \\      The output from stdout will not be cached.
     \\
     \\    --ignore-stderr
-    \\    The output from stderr will not be cached.
+    \\      The output from stderr will not be cached.
     \\
     \\-e, --env <env>...
-    \\    The output of the command depends on this environment variable. If it changes, the cache
-    \\    is invalidated.
+    \\      The output of the command depends on this environment variable. If it changes, the
+    \\      cache is invalidated.
     \\
     \\-f, --file <file>...
-    \\    The output of the command depends on this file. If it changes, the cache is invalidated.
+    \\      The output of the command depends on this file. If it changes, the cache is
+    \\      invalidated.
     \\
     \\-s, --string <string>...
-    \\    The output of the command depends on this string. If it changes, the cache is
-    \\    invalidated.
+    \\      The output of the command depends on this string. If it changes, the cache is
+    \\      invalidated.
     \\
     \\-o, --output <file>...
-    \\    The files that command outputs to.
+    \\      The files that command outputs to.
     \\
     \\<command>...
     \\
-);
+;
 
-const parsers = .{
-    .command = clap.parsers.string,
-    .env = clap.parsers.string,
-    .file = clap.parsers.string,
-    .string = clap.parsers.string,
+const Args = struct {
+    stdin: bool = false,
+    ignore_stdout: bool = false,
+    ignore_stderr: bool = false,
+    envs: std.ArrayListUnmanaged([]const u8) = .{},
+    files: std.ArrayListUnmanaged([]const u8) = .{},
+    strings: std.ArrayListUnmanaged([]const u8) = .{},
+    outputs: std.ArrayListUnmanaged([]const u8) = .{},
+    command: std.ArrayListUnmanaged([]const u8) = .{},
 };
 
 pub fn main() !void {
@@ -54,48 +62,51 @@ pub fn main() !void {
     const gpa = gpa_state.allocator();
     defer _ = gpa_state.deinit();
 
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    const arena = arena_state.allocator();
+    defer arena_state.deinit();
+
     const stdin = io.getStdIn();
     const stdout = io.getStdOut();
     const stderr = io.getStdErr();
 
-    const global_cache_path = (try folders.getPath(gpa, .cache)) orelse
-        return error.MissingGlobalCache;
-    defer gpa.free(global_cache_path);
-
-    const cache_path = try fs.path.join(gpa, &.{
-        global_cache_path,
-        "cache",
-    });
-    defer gpa.free(cache_path);
+    const global_cache_path = (try folders.getPath(arena, .cache)) orelse return error.MissingGlobalCache;
+    const cache_path = try fs.path.join(arena, &.{ global_cache_path, "cache" });
 
     var cache_dir = try std.fs.cwd().makeOpenPath(cache_path, .{});
     defer cache_dir.close();
 
-    var diag = clap.Diagnostic{};
-    const args = clap.parse(clap.Help, &params, parsers, .{
-        .allocator = gpa,
-        .diagnostic = &diag,
-    }) catch |err| {
-        diag.report(stderr.writer(), err) catch {};
-        return err;
-    };
-    defer args.deinit();
-
-    if (args.args.help != 0) {
-        try stdout.writeAll("Usage: cache ");
-        try clap.usage(stdout.writer(), clap.Help, &params);
-        try stdout.writeAll("\n\nOptions:\n");
-        return clap.help(stdout.writer(), clap.Help, &params, .{});
+    var arg_parser = try spaghet.Args.initArgs(arena);
+    var args = Args{};
+    while (arg_parser.next()) {
+        if (arg_parser.flag(&.{ "-h", "--help" }))
+            return stdout.writeAll(usage);
+        if (arg_parser.flag(&.{"--stdin"}))
+            args.stdin = true;
+        if (arg_parser.flag(&.{"--ignore-stdout"}))
+            args.ignore_stdout = true;
+        if (arg_parser.flag(&.{"--ignore-stderr"}))
+            args.ignore_stderr = true;
+        if (arg_parser.option(&.{ "-e", "--env" })) |v|
+            try args.envs.append(arena, v);
+        if (arg_parser.option(&.{ "-f", "--file" })) |v|
+            try args.files.append(arena, v);
+        if (arg_parser.option(&.{ "-s", "--string" })) |v|
+            try args.strings.append(arena, v);
+        if (arg_parser.option(&.{ "-o", "--output" })) |v|
+            try args.outputs.append(arena, v);
+        if (arg_parser.positional()) |v|
+            try args.command.append(arena, v);
     }
 
-    const stdin_content = if (args.args.stdin != 0)
+    const stdin_content = if (args.stdin)
         try stdin.readToEndAlloc(gpa, math.maxInt(usize))
     else
         "";
     defer gpa.free(stdin_content);
 
     const digest = try digestFromArgs(gpa, stdin_content, args);
-    if (updateOutput(gpa, stdout, stderr, cache_dir, cache_path, &digest, args.args.output)) |_| {
+    if (updateOutput(gpa, stdout, stderr, cache_dir, cache_path, &digest, args.outputs.items)) |_| {
         // Cache hit, just return
         return;
     } else |err| switch (err) {
@@ -107,23 +118,23 @@ pub fn main() !void {
 
     const output = try std.process.Child.run(.{
         .allocator = gpa,
-        .argv = args.positionals[0],
+        .argv = args.command.items,
         .max_output_bytes = math.maxInt(usize),
     });
     defer gpa.free(output.stdout);
     defer gpa.free(output.stderr);
 
-    const output_stdout = if (args.args.@"ignore-stdout" == 0) output.stdout else "";
-    const output_stderr = if (args.args.@"ignore-stderr" == 0) output.stderr else "";
+    const output_stdout = if (args.ignore_stdout) output.stdout else "";
+    const output_stderr = if (args.ignore_stderr) output.stderr else "";
 
-    try updateCache(output_stdout, output_stderr, cache_dir, &digest, args.args.output);
-    try updateOutput(gpa, stdout, stderr, cache_dir, cache_path, &digest, args.args.output);
+    try updateCache(output_stdout, output_stderr, cache_dir, &digest, args.outputs.items);
+    try updateOutput(gpa, stdout, stderr, cache_dir, cache_path, &digest, args.outputs.items);
 
     // Print out stdout and stderr when ignore but didn't have a cache hit. This allows for better
     // debugging if the command fails.
-    if (args.args.@"ignore-stdout" != 0)
+    if (args.ignore_stdout)
         try stdout.writeAll(output.stdout);
-    if (args.args.@"ignore-stderr" != 0)
+    if (args.ignore_stderr)
         try stderr.writeAll(output.stderr);
 }
 
@@ -135,17 +146,17 @@ const hex_digest_len = bin_digest_len * 2;
 fn digestFromArgs(
     allocator: mem.Allocator,
     stdin: []const u8,
-    args: anytype,
+    args: Args,
 ) ![hex_digest_len]u8 {
     const cwd = fs.cwd();
     var hasher = Hasher.init(&[_]u8{0} ** Hasher.key_length);
     hasher.update(stdin);
 
-    for (args.positionals[0]) |command_arg|
+    for (args.command.items) |command_arg|
         hasher.update(command_arg);
-    for (args.args.string) |string|
+    for (args.strings.items) |string|
         hasher.update(string);
-    for (args.args.env) |env| {
+    for (args.envs.items) |env| {
         const content = process.getEnvVarOwned(allocator, env) catch |err| switch (err) {
             error.EnvironmentVariableNotFound => "",
             else => |e| return e,
@@ -154,7 +165,7 @@ fn digestFromArgs(
         hasher.update(env);
         hasher.update(content);
     }
-    for (args.args.file) |filepath| {
+    for (args.files.items) |filepath| {
         const realpath = try cwd.realpathAlloc(allocator, filepath);
         defer allocator.free(realpath);
 
@@ -166,9 +177,9 @@ fn digestFromArgs(
         hasher.update(&mem.toBytes(metadata.modified()));
     }
 
-    if (args.args.@"ignore-stdout" != 0)
+    if (args.ignore_stdout)
         hasher.update("ignore-stdout");
-    if (args.args.@"ignore-stderr" != 0)
+    if (args.ignore_stderr)
         hasher.update("ignore-stderr");
 
     var bin_digest: BinDigest = undefined;
