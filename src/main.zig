@@ -66,9 +66,9 @@ pub fn main() !void {
     const arena = arena_state.allocator();
     defer arena_state.deinit();
 
-    const stdin = io.getStdIn();
-    const stdout = io.getStdOut();
-    const stderr = io.getStdErr();
+    const stdin = std.fs.File.stdin();
+    const stdout = std.fs.File.stdout();
+    const stderr = std.fs.File.stderr();
 
     const global_cache_path = (try folders.getPath(arena, .cache)) orelse return error.MissingGlobalCache;
     const cache_path = try fs.path.join(arena, &.{ global_cache_path, "cache" });
@@ -170,11 +170,11 @@ fn digestFromArgs(
         defer allocator.free(realpath);
 
         const file = try cwd.openFile(realpath, .{});
-        const metadata = try file.metadata();
+        const stat = try file.stat();
         defer file.close();
         hasher.update(realpath);
-        hasher.update(&mem.toBytes(metadata.size()));
-        hasher.update(&mem.toBytes(metadata.modified()));
+        hasher.update(&mem.toBytes(stat.size));
+        hasher.update(&mem.toBytes(stat.mtime));
     }
 
     if (args.ignore_stdout)

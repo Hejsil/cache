@@ -1,16 +1,16 @@
 .{
     .name = .cache,
     .version = "0.2.0",
-    .minimum_zig_version = "0.14.0",
+    .minimum_zig_version = "0.15.0-dev.1031+61eff7b6d",
     .fingerprint = 0x41476be70173bd63,
     .dependencies = .{
-        .@"known-folders" = .{
-            .url = "git+https://github.com/ziglibs/known-folders.git#aa24df42183ad415d10bc0a33e6238c437fc0f59",
-            .hash = "1220c60cec18c0c915c9d3124e9fda37e9df8c2670eaa3d0d8408bbe790e7e1bf857",
-        },
         .spaghet = .{
             .url = "git+https://github.com/hejsil/spaghet#e60dec9b6411bca7fa6fb11a9826a757f0795b0b",
             .hash = "spaghet-0.0.0-qAWgUccvAAA-FRGAv2QeHvbX2hqSPhnHOYMqLBB3gK1f",
+        },
+        .known_folders = .{
+            .url = "git+https://github.com/ziglibs/known-folders.git#92defaee76b07487769ca352fd0ba95bc8b42a2f",
+            .hash = "known_folders-0.0.0-Fy-PJkfRAAAVdptXWXBspIIC7EkVgLgWozU5zIk5Zgcy",
         },
     },
     .paths = .{
