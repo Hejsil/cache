@@ -124,17 +124,17 @@ pub fn main() !void {
     defer gpa.free(output.stdout);
     defer gpa.free(output.stderr);
 
-    const output_stdout = if (args.ignore_stdout) output.stdout else "";
-    const output_stderr = if (args.ignore_stderr) output.stderr else "";
+    const output_stdout = if (!args.ignore_stdout) output.stdout else "";
+    const output_stderr = if (!args.ignore_stderr) output.stderr else "";
 
     try updateCache(output_stdout, output_stderr, cache_dir, &digest, args.outputs.items);
     try updateOutput(gpa, stdout, stderr, cache_dir, cache_path, &digest, args.outputs.items);
 
     // Print out stdout and stderr when ignore but didn't have a cache hit. This allows for better
     // debugging if the command fails.
-    if (args.ignore_stdout)
+    if (!args.ignore_stdout)
         try stdout.writeAll(output.stdout);
-    if (args.ignore_stderr)
+    if (!args.ignore_stderr)
         try stderr.writeAll(output.stderr);
 }
 
