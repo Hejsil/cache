@@ -238,9 +238,7 @@ fn updateCache(
     const stdout_name = try std.fmt.allocPrint(io.arena, "{s}-stdout", .{digest});
     try cache_dir.writeFile(.{ .sub_path = stdout_name, .data = stdout });
 
-    std.debug.print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n", .{});
     if (stderr.len != 0) {
-        std.debug.print("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n", .{});
         const stderr_name = try std.fmt.allocPrint(io.arena, "{s}-stderr", .{digest});
         try cache_dir.writeFile(.{ .sub_path = stderr_name, .data = stderr });
     }
